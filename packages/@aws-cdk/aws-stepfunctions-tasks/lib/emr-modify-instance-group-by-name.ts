@@ -72,18 +72,24 @@ export namespace EmrModifyInstanceGroupByName {
   export interface InstanceResizePolicyProperty {
     /**
      * Specific list of instances to be protected when shrinking an instance group.
+     *
+     * @default No instancesToProtect
      */
     readonly instancesToProtect?: string[];
 
     /**
      * Specific list of instances to be terminated when shrinking an instance group.
+     *
+     * @default No instancesToTerminate
      */
     readonly instancesToTerminate?: string[];
 
     /**
      * Decommissioning timeout override for the specific list of instances to be terminated.
+     *
+     * @default EMR selected default
      */
-    readonly instanceTerminationTimeout?: number;
+    readonly instanceTerminationTimeout?: cdk.Duration;
   }
 
   /**
@@ -95,7 +101,7 @@ export namespace EmrModifyInstanceGroupByName {
     return {
       InstancesToProtect: cdk.listMapper(cdk.stringToCloudFormation)(property.instancesToProtect),
       InstancesToTerminate: cdk.listMapper(cdk.stringToCloudFormation)(property.instancesToTerminate),
-      InstanceTerminationTimeout: cdk.numberToCloudFormation(property.instanceTerminationTimeout)
+      InstanceTerminationTimeout: cdk.numberToCloudFormation(property.instanceTerminationTimeout?.toSeconds())
     };
   }
 
@@ -109,11 +115,15 @@ export namespace EmrModifyInstanceGroupByName {
   export interface ShrinkPolicyProperty {
     /**
      * The desired timeout for decommissioning an instance. Overrides the default YARN decommissioning timeout.
+     *
+     * @default EMR selected default
      */
-    readonly decommissionTimeout?: number;
+    readonly decommissionTimeout?: cdk.Duration;
 
     /**
      * Custom policy for requesting termination protection or termination of specific instances when shrinking an instance group.
+     *
+     * @default No instanceResizePolicy
      */
     readonly instanceResizePolicy?: InstanceResizePolicyProperty;
   }
@@ -125,7 +135,7 @@ export namespace EmrModifyInstanceGroupByName {
    */
   export function ShrinkPolicyPropertyToJson(property: ShrinkPolicyProperty) {
     return {
-      DecommissionTimeout: cdk.numberToCloudFormation(property.decommissionTimeout),
+      DecommissionTimeout: cdk.numberToCloudFormation(property.decommissionTimeout?.toSeconds()),
       InstanceResizePolicy: (property.instanceResizePolicy === undefined) ?
         property.instanceResizePolicy :
         InstanceResizePolicyPropertyToJson(property.instanceResizePolicy)
@@ -143,16 +153,21 @@ export namespace EmrModifyInstanceGroupByName {
     /**
      * A list of new or modified configurations to apply for an instance group.
      *
+     * @default No configurations
      */
     readonly configurations?: EmrCreateCluster.ConfigurationProperty[];
 
     /**
      * The EC2 InstanceIds to terminate. After you terminate the instances, the instance group will not return to its original requested size.
+     *
+     * @default No eC2InstanceIdsToTerminate
      */
     readonly eC2InstanceIdsToTerminate?: string[];
 
     /**
      * Target size for the instance group.
+     *
+     * @default No instanceCount
      */
     readonly instanceCount?: number;
 
@@ -160,6 +175,8 @@ export namespace EmrModifyInstanceGroupByName {
      * Policy for customizing shrink operations.
      *
      * @see https://docs.aws.amazon.com/emr/latest/APIReference/API_ShrinkPolicy.html
+     *
+     * @default No shrinkPolicy
      */
     readonly shrinkPolicy?: ShrinkPolicyProperty;
   }
@@ -167,7 +184,6 @@ export namespace EmrModifyInstanceGroupByName {
   /**
    * Render the InstanceGroupModifyConfigPropety to JSON
    *
-   * @param instanceGroupName
    * @param property
    */
   export function InstanceGroupModifyConfigPropertyToJson(property: InstanceGroupModifyConfigProperty) {
