@@ -4,10 +4,12 @@ import { IPolicy } from './policy';
 const MAX_POLICY_NAME_LEN = 128;
 
 export function undefinedIfEmpty(f: () => string[]): string[] {
-  return Lazy.listValue({ produce: () => {
-    const array = f();
-    return (array && array.length > 0) ? array : undefined;
-  }});
+  return Lazy.listValue({
+    produce: () => {
+      const array = f();
+      return (array && array.length > 0) ? array : undefined;
+    },
+  });
 }
 
 /**
@@ -69,9 +71,9 @@ export function mergePrincipal(target: { [key: string]: string[] }, source: { [k
   for (const key of Object.keys(source)) {
     target[key] = target[key] || [];
 
-    const value = source[key];
+    let value = source[key];
     if (!Array.isArray(value)) {
-      throw new Error(`Principal value must be an array (it will be normalized later): ${value}`);
+      value = [value];
     }
 
     target[key].push(...value);

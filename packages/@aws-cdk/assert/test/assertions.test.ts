@@ -1,7 +1,7 @@
 import * as cdk from '@aws-cdk/core';
 import * as cx from '@aws-cdk/cx-api';
 
-import { countResources, exist, expect as cdkExpect, haveType, MatchStyle, matchTemplate } from '../lib/index';
+import { countResources, countResourcesLike, exist, expect as cdkExpect, haveType, MatchStyle, matchTemplate } from '../lib/index';
 
 passingExample('expect <synthStack> at <some path> to have <some type>', () => {
   const resourceType = 'Test::Resource';
@@ -37,8 +37,8 @@ passingExample('expect <synthStack> to match (exactly) <template>', () => {
   });
   const expected = {
     Resources: {
-      TestResource: { Type: resourceType }
-    }
+      TestResource: { Type: resourceType },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.EXACT));
 });
@@ -62,8 +62,8 @@ passingExample('expect <synthStack> to be a superset of <template>', () => {
   const expected = {
     Resources: {
       TestResourceA: { Type: 'Test::Resource' },
-      TestResourceB: { Type: 'Test::Resource', Properties: { Foo: 'Bar' } }
-    }
+      TestResourceB: { Type: 'Test::Resource', Properties: { Foo: 'Bar' } },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.SUPERSET));
 });
@@ -73,9 +73,9 @@ passingExample('sugar for matching stack to a template', () => {
   cdkExpect(stack).toMatch({
     Resources: {
       TestResource: {
-        Type: 'Test::Resource'
-      }
-    }
+        Type: 'Test::Resource',
+      },
+    },
   });
 });
 passingExample('expect <synthStack> to match (no replaces) <template> with parameters', () => {
@@ -92,14 +92,14 @@ passingExample('expect <synthStack> to be a superset of <template> with paramete
     // Added
     new TestResource(stack, 'NewResource', { type: 'AWS::S3::Bucket' });
     // Expected
-    new TestParameter(stack, 'TestParameterA', {type: parameterType});
-    new TestParameter(stack, 'TestParameterB', {type: parameterType, default: { Foo: 'Bar' } });
+    new TestParameter(stack, 'TestParameterA', { type: parameterType });
+    new TestParameter(stack, 'TestParameterB', { type: parameterType, default: { Foo: 'Bar' } });
   });
   const expected = {
     Parameters: {
       TestParameterA: { Type: 'Test::Parameter' },
-      TestParameterB: { Type: 'Test::Parameter', Default: { Foo: 'Bar' } }
-    }
+      TestParameterB: { Type: 'Test::Parameter', Default: { Foo: 'Bar' } },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.SUPERSET));
 });
@@ -132,8 +132,8 @@ failingExample('expect <synthStack> to match (exactly) <template>', () => {
   });
   const expected = {
     Resources: {
-      TestResource: { Type: resourceType, DependsOn: ['Something'] }
-    }
+      TestResource: { Type: resourceType, DependsOn: ['Something'] },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.EXACT));
 });
@@ -144,8 +144,8 @@ failingExample('expect <synthStack> to match (no replaces) <template>', () => {
   });
   const expected = {
     Resources: {
-      TestResource: { Type: 'AWS::S3::Bucket' }
-    }
+      TestResource: { Type: 'AWS::S3::Bucket' },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.NO_REPLACES));
 });
@@ -162,8 +162,8 @@ failingExample('expect <synthStack> to be a superset of <template>', () => {
   const expected = {
     Resources: {
       TestResourceA: { Type: 'Test::Resource' },
-      TestResourceB: { Type: 'Test::Resource', Properties: { Foo: 'Baz' } }
-    }
+      TestResourceB: { Type: 'Test::Resource', Properties: { Foo: 'Baz' } },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.SUPERSET));
 });
@@ -174,8 +174,8 @@ failingExample('expect <synthStack> to match (no replaces) <template> with param
   });
   const expected = {
     Parameters: {
-      TestParameter: { Type: 'AWS::S3::Bucket' }
-    }
+      TestParameter: { Type: 'AWS::S3::Bucket' },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.NO_REPLACES));
 });
@@ -192,8 +192,8 @@ failingExample('expect <synthStack> to be a superset of <template> with paramete
   const expected = {
     Parameters: {
       TestParameterA: { Type: 'Test::Parameter' },
-      TestParameterB: { Type: 'Test::Parameter', Default: { Foo: 'Baz' } }
-    }
+      TestParameterB: { Type: 'Test::Parameter', Default: { Foo: 'Baz' } },
+    },
   };
   cdkExpect(synthStack).to(matchTemplate(expected, MatchStyle.SUPERSET));
 });
@@ -235,6 +235,75 @@ failingExample('expect <synthStack> to count resources - less than expected', ()
   });
 
   cdkExpect(synthStack).to(countResources(resourceType, 0));
+});
+
+// countResourcesLike
+
+passingExample('expect <synthStack> to count resources like props - as expected', () => {
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: 'Bar', properties: { parentId: 123, name: 'A' } });
+    new TestResource(stack, 'R2', { type: 'Bar', properties: { parentId: 123, name: 'B' } });
+    new TestResource(stack, 'R3', { type: 'Foo', properties: { parentId: 123 } });
+  });
+
+  cdkExpect(synthStack).to(countResourcesLike('Bar', 2, { parentId: 123 }));
+  cdkExpect(synthStack).to(countResourcesLike('Foo', 1, { parentId: 123 }));
+});
+
+passingExample('expect <stack> to count resources like props - expected no resources', () => {
+  const resourceType = 'Test::Resource';
+  const stack = new cdk.Stack();
+  cdkExpect(stack).to(countResourcesLike(resourceType, 0, { parentId: 123 }));
+});
+
+passingExample('expect <stack> to count resources like props - expected no resources', () => {
+  const resourceType = 'Test::Resource';
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: resourceType, properties: { parentId: 123, name: 'A' } });
+    new TestResource(stack, 'R2', { type: resourceType });
+    new TestResource(stack, 'R3', { type: 'Foo', properties: { parentId: 456 } });
+  });
+  cdkExpect(synthStack).to(countResourcesLike(resourceType, 0, { parentId: 456 }));
+});
+
+failingExample('expect <synthStack> to count resources like props - more than expected', () => {
+  const resourceType = 'Test::Resource';
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: resourceType, properties: { parentId: 123 } });
+    new TestResource(stack, 'R2', { type: resourceType, properties: { parentId: 123 } });
+  });
+
+  cdkExpect(synthStack).to(countResourcesLike(resourceType, 1, { parentId: 123 }));
+});
+
+passingExample('expect <synthStack> to count resources like props - nested props out of order', () => {
+  const resourceType = 'Test::Resource';
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: resourceType, properties: { id: 987, parentInfo: { id: 123, name: 'A' } } });
+    new TestResource(stack, 'R2', { type: resourceType, properties: { id: 456, parentInfo: { name: 'A', id: 123 } } });
+  });
+
+  cdkExpect(synthStack).to(countResourcesLike(resourceType, 2, { parentInfo: { id: 123, name: 'A' } }));
+});
+
+passingExample('expect <synthStack> to count resources like props - nested props incomplete', () => {
+  const resourceType = 'Test::Resource';
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: resourceType, properties: { id: 987, parentInfo: { id: 123, name: 'A' } } });
+    new TestResource(stack, 'R2', { type: resourceType, properties: { id: 456, parentInfo: { name: 'A', id: 123 } } });
+  });
+
+  cdkExpect(synthStack).to(countResourcesLike(resourceType, 2, { parentInfo: { id: 123 } }));
+});
+
+failingExample('expect <synthStack> to count resources like props - less than expected', () => {
+  const resourceType = 'Test::Resource';
+  const synthStack = synthesizedStack(stack => {
+    new TestResource(stack, 'R1', { type: resourceType, properties: { parentId: 123 } });
+    new TestResource(stack, 'R2', { type: resourceType, properties: { parentId: 123 } });
+  });
+
+  cdkExpect(synthStack).to(countResourcesLike(resourceType, 0, { parentId: 123 }));
 });
 
 function passingExample(title: string, cb: () => void) {

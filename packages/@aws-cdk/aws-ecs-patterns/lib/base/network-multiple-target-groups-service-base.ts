@@ -1,6 +1,8 @@
 import { IVpc } from '@aws-cdk/aws-ec2';
-import { AwsLogDriver, BaseService, CloudMapOptions, Cluster, ContainerDefinition, ContainerImage, ICluster, LogDriver,
-  PropagatedTagSource, Protocol, Secret } from '@aws-cdk/aws-ecs';
+import {
+  AwsLogDriver, BaseService, CloudMapOptions, Cluster, ContainerDefinition, ContainerImage, ICluster, LogDriver,
+  PropagatedTagSource, Protocol, Secret,
+} from '@aws-cdk/aws-ecs';
 import { NetworkListener, NetworkLoadBalancer, NetworkTargetGroup } from '@aws-cdk/aws-elasticloadbalancingv2';
 import { IRole } from '@aws-cdk/aws-iam';
 import { ARecord, IHostedZone, RecordTarget } from '@aws-cdk/aws-route53';
@@ -351,9 +353,9 @@ export abstract class NetworkMultipleTargetGroupsServiceBase extends Construct {
         targets: [
           service.loadBalancerTarget({
             containerName: container.containerName,
-            containerPort: targetProps.containerPort
-          })
-        ]
+            containerPort: targetProps.containerPort,
+          }),
+        ],
       });
       this.targetGroups.push(targetGroup);
     }
@@ -367,7 +369,7 @@ export abstract class NetworkMultipleTargetGroupsServiceBase extends Construct {
     for (const target of targets) {
       if (!container.findPortMapping(target.containerPort, Protocol.TCP)) {
         container.addPortMappings({
-          containerPort: target.containerPort
+          containerPort: target.containerPort,
         });
       }
     }
@@ -379,8 +381,8 @@ export abstract class NetworkMultipleTargetGroupsServiceBase extends Construct {
   private createLogDriver(enableLoggingProp?: boolean, logDriverProp?: LogDriver): LogDriver | undefined {
     const enableLogging = enableLoggingProp !== undefined ? enableLoggingProp : true;
     const logDriver = logDriverProp !== undefined
-                        ? logDriverProp : enableLogging
-                          ? this.createAWSLogDriver(this.node.id) : undefined;
+      ? logDriverProp : enableLogging
+        ? this.createAWSLogDriver(this.node.id) : undefined;
     return logDriver;
   }
 
@@ -409,7 +411,7 @@ export abstract class NetworkMultipleTargetGroupsServiceBase extends Construct {
     const internetFacing = publicLoadBalancer !== undefined ? publicLoadBalancer : true;
     const lbProps = {
       vpc: this.cluster.vpc,
-      internetFacing
+      internetFacing,
     };
 
     return new NetworkLoadBalancer(this, name, lbProps);
@@ -417,7 +419,7 @@ export abstract class NetworkMultipleTargetGroupsServiceBase extends Construct {
 
   private createListener(name: string, lb: NetworkLoadBalancer, port: number): NetworkListener {
     return lb.addListener(name, {
-      port
+      port,
     });
   }
 

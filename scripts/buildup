@@ -4,19 +4,21 @@ scriptdir=$(cd $(dirname $0) && pwd)
 
 echo "************************************************************"
 echo " buildup usage:"
-echo " - execute 'buildup' again to resume after failure"
-echo " - execute 'buildup --restart' to restart"
+echo " - execute 'buildup --resume' to resume after failure"
+echo " - execute 'buildup' to restart the build from the start"
 echo ""
 echo " for advanced usage, see ${scriptdir}/foreach.sh"
 echo "************************************************************"
 
-if [ "${1:-}" == "--restart" ] || [ "${1:-}" == "--reset" ]; then
-  ${scriptdir}/foreach.sh --reset
+if [ "$#" -eq 0 ]; then
+  ${scriptdir}/foreach.sh --reset --up yarn build
+else
+  if [ "$1" != "--resume" ]; then
+    echo "Unknown option: $1"
+    exit 1
+  fi
+  ${scriptdir}/foreach.sh --up yarn build
 fi
-
-
-${scriptdir}/foreach.sh --up yarn build
-${scriptdir}/foreach.sh --reset
 
 echo "************************************************************"
 echo "buildup done"

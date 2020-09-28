@@ -1,6 +1,5 @@
-import { CustomResource } from '@aws-cdk/aws-cloudformation';
-import { Construct, Stack } from '@aws-cdk/core';
-import { Cluster } from './cluster';
+import { Construct, CustomResource, Duration, Stack } from '@aws-cdk/core';
+import { ICluster } from './cluster';
 import { KubectlProvider } from './kubectl-provider';
 
 /**
@@ -15,7 +14,7 @@ export interface HelmChartOptions {
 
   /**
    * The name of the release.
-   * @default - If no release name is given, it will use the last 63 characters of the node's unique id.
+   * @default - If no release name is given, it will use the last 53 characters of the node's unique id.
    */
   readonly release?: string;
 
@@ -42,6 +41,25 @@ export interface HelmChartOptions {
    * @default - No values are provided to the chart.
    */
   readonly values?: {[key: string]: any};
+
+  /**
+   * Whether or not Helm should wait until all Pods, PVCs, Services, and minimum number of Pods of a
+   * Deployment, StatefulSet, or ReplicaSet are in a ready state before marking the release as successful.
+   * @default - Helm will not wait before marking release as successful
+   */
+  readonly wait?: boolean;
+
+  /**
+   * Amount of time to wait for any individual Kubernetes operation. Maximum 15 minutes.
+   * @default Duration.minutes(5)
+   */
+  readonly timeout?: Duration;
+
+  /**
+   * create namespace if not exist
+   * @default true
+   */
+  readonly createNamespace?: boolean;
 }
 
 /**
@@ -53,7 +71,7 @@ export interface HelmChartProps extends HelmChartOptions {
    *
    * [disable-awslint:ref-via-interface]
    */
-  readonly cluster: Cluster;
+  readonly cluster: ICluster;
 }
 
 /**
@@ -63,7 +81,7 @@ export interface HelmChartProps extends HelmChartOptions {
  */
 export class HelmChart extends Construct {
   /**
-   * The CloudFormation reosurce type.
+   * The CloudFormation resource type.
    */
   public static readonly RESOURCE_TYPE = 'Custom::AWSCDK-EKS-HelmChart';
 
@@ -72,21 +90,34 @@ export class HelmChart extends Construct {
 
     const stack = Stack.of(this);
 
-    const provider = KubectlProvider.getOrCreate(this);
+    const provider = KubectlProvider.getOrCreate(this, props.cluster);
+
+    const timeout = props.timeout?.toSeconds();
+    if (timeout && timeout > 900) {
+      throw new Error('Helm chart timeout cannot be higher than 15 minutes.');
+    }
+
+    // default not to wait
+    const wait = props.wait ?? false;
+    // default to create new namespace
+    const createNamespace = props.createNamespace ?? true;
 
     new CustomResource(this, 'Resource', {
-      provider: provider.provider,
+      serviceToken: provider.serviceToken,
       resourceType: HelmChart.RESOURCE_TYPE,
       properties: {
         ClusterName: props.cluster.clusterName,
-        RoleArn: props.cluster._getKubectlCreationRoleArn(provider.role),
-        Release: props.release || this.node.uniqueId.slice(-63).toLowerCase(), // Helm has a 63 character limit for the name
+        RoleArn: provider.roleArn, // TODO: bake into the provider's environment
+        Release: props.release ?? this.node.uniqueId.slice(-53).toLowerCase(), // Helm has a 53 character limit for the name
         Chart: props.chart,
         Version: props.version,
+        Wait: wait || undefined, // props are stringified so we encode “false” as undefined
+        Timeout: timeout ? `${timeout.toString()}s` : undefined, // Helm v3 expects duration instead of integer
         Values: (props.values ? stack.toJsonString(props.values) : undefined),
-        Namespace: props.namespace || 'default',
-        Repository: props.repository
-      }
+        Namespace: props.namespace ?? 'default',
+        Repository: props.repository,
+        CreateNamespace: createNamespace || undefined,
+      },
     });
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@aws-cdk/aws-route53",
-  "version": "1.23.0",
-  "description": "CDK Constructs for AWS Route53",
+  "version": "0.0.0",
+  "description": "The CDK Construct Library for AWS::Route53",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "jsii": {
@@ -23,9 +23,14 @@
       },
       "python": {
         "distName": "aws-cdk.aws-route53",
-        "module": "aws_cdk.aws_route53"
+        "module": "aws_cdk.aws_route53",
+        "classifiers": [
+          "Framework :: AWS CDK",
+          "Framework :: AWS CDK :: 1"
+        ]
       }
-    }
+    },
+    "projectReferences": true
   },
   "repository": {
     "type": "git",
@@ -62,35 +67,35 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "@aws-cdk/assert": "1.23.0",
-    "@types/nodeunit": "^0.0.30",
-    "aws-sdk": "^2.610.0",
-    "cdk-build-tools": "1.23.0",
-    "cdk-integ-tools": "1.23.0",
-    "cfn2ts": "1.23.0",
+    "@aws-cdk/assert": "0.0.0",
+    "@types/nodeunit": "^0.0.31",
+    "aws-sdk": "^2.739.0",
+    "cdk-build-tools": "0.0.0",
+    "cdk-integ-tools": "0.0.0",
+    "cfn2ts": "0.0.0",
     "nodeunit": "^0.11.3",
-    "pkglint": "1.23.0"
+    "pkglint": "0.0.0"
   },
   "dependencies": {
-    "@aws-cdk/aws-ec2": "1.23.0",
-    "@aws-cdk/aws-logs": "1.23.0",
-    "@aws-cdk/core": "1.23.0",
-    "@aws-cdk/cx-api": "1.23.0"
+    "@aws-cdk/aws-ec2": "0.0.0",
+    "@aws-cdk/aws-logs": "0.0.0",
+    "@aws-cdk/core": "0.0.0",
+    "@aws-cdk/cloud-assembly-schema": "0.0.0",
+    "constructs": "^3.0.4"
   },
   "homepage": "https://github.com/aws/aws-cdk",
   "peerDependencies": {
-    "@aws-cdk/aws-ec2": "1.23.0",
-    "@aws-cdk/aws-logs": "1.23.0",
-    "@aws-cdk/core": "1.23.0",
-    "@aws-cdk/cx-api": "1.23.0"
+    "@aws-cdk/aws-ec2": "0.0.0",
+    "@aws-cdk/aws-logs": "0.0.0",
+    "@aws-cdk/core": "0.0.0",
+    "@aws-cdk/cloud-assembly-schema": "0.0.0",
+    "constructs": "^3.0.4"
   },
   "engines": {
-    "node": ">= 10.3.0"
+    "node": ">= 10.13.0 <13 || >=13.7.0"
   },
   "awslint": {
     "exclude": [
-      "from-attributes:fromPrivateHostedZoneAttributes",
-      "from-attributes:fromPublicHostedZoneAttributes",
       "props-physical-name:@aws-cdk/aws-route53.ZoneDelegationRecordProps",
       "props-physical-name:@aws-cdk/aws-route53.ARecordProps",
       "props-physical-name:@aws-cdk/aws-route53.CaaAmazonRecordProps",
@@ -103,32 +108,7 @@
       "props-physical-name:@aws-cdk/aws-route53.RecordSetProps",
       "props-physical-name:@aws-cdk/aws-route53.SrvRecordProps",
       "props-physical-name:@aws-cdk/aws-route53.TxtRecordProps",
-      "props-physical-name:@aws-cdk/aws-route53.AaaaRecordProps",
-      "docs-public-apis:@aws-cdk/aws-route53.AddressRecordTarget",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.TXT",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.SRV",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.SPF",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.SOA",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.PTR",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.NS",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.NAPTR",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.MX",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.CNAME",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.CAA",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.AAAA",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordType.A",
-      "docs-public-apis:@aws-cdk/aws-route53.PrivateHostedZoneProps",
-      "docs-public-apis:@aws-cdk/aws-route53.IPublicHostedZone",
-      "docs-public-apis:@aws-cdk/aws-route53.IPrivateHostedZone",
-      "props-default-doc:@aws-cdk/aws-route53.HostedZoneProviderProps.vpcId",
-      "props-default-doc:@aws-cdk/aws-route53.HostedZoneProviderProps.privateZone",
-      "docs-public-apis:@aws-cdk/aws-route53.CommonHostedZoneProps",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordTarget.values",
-      "docs-public-apis:@aws-cdk/aws-route53.RecordTarget.aliasTarget",
-      "docs-public-apis:@aws-cdk/aws-route53.PublicHostedZone.fromPublicHostedZoneId",
-      "docs-public-apis:@aws-cdk/aws-route53.PrivateHostedZone.fromPrivateHostedZoneId",
-      "docs-public-apis:@aws-cdk/aws-route53.HostedZone.fromHostedZoneId",
-      "docs-public-apis:@aws-cdk/aws-route53.HostedZone"
+      "props-physical-name:@aws-cdk/aws-route53.AaaaRecordProps"
     ]
   },
   "stability": "stable",
@@ -136,5 +116,9 @@
     "statements": 60,
     "lines": 60,
     "branches": 60
-  }
+  },
+  "awscdkio": {
+    "announce": false
+  },
+  "maturity": "stable"
 }

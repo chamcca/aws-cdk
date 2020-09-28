@@ -1,103 +1,60 @@
 import * as cxapi from '@aws-cdk/cx-api';
-import * as aws from 'aws-sdk';
 import * as colors from 'colors/safe';
-import { contentHash } from '../archive';
 import { debug } from '../logging';
-import { Mode } from './aws-auth/credentials';
-import { BUCKET_DOMAIN_NAME_OUTPUT, BUCKET_NAME_OUTPUT  } from './bootstrap-environment';
-import { waitForStack } from './util/cloudformation';
-import { ISDK } from './util/sdk';
+import { ISDK } from './aws-auth';
+import { BOOTSTRAP_VERSION_OUTPUT, BUCKET_DOMAIN_NAME_OUTPUT, BUCKET_NAME_OUTPUT } from './bootstrap';
+import { stabilizeStack, CloudFormationStack } from './util/cloudformation';
 
-/** @experimental */
-export interface UploadProps {
-  s3KeyPrefix?: string,
-  s3KeySuffix?: string,
-  contentType?: string,
-}
+export const DEFAULT_TOOLKIT_STACK_NAME = 'CDKToolkit';
 
-/** @experimental */
-export interface Uploaded {
-  filename: string;
-  key: string;
-  hash: string;
-  changed: boolean;
-}
-
-/** @experimental */
+/**
+ * Information on the Bootstrap stack
+ *
+ * Called "ToolkitInfo" for historical reasons.
+ *
+ * @experimental
+ */
 export class ToolkitInfo {
-  public readonly sdk: ISDK;
+  public static determineName(overrideName?: string) {
+    return overrideName ?? DEFAULT_TOOLKIT_STACK_NAME;
+  }
 
-  /**
-   * A cache of previous uploads done in this session
-   */
-  private readonly previousUploads: {[key: string]: Uploaded} = {};
+  /** @experimental */
+  public static async lookup(environment: cxapi.Environment, sdk: ISDK, stackName: string | undefined): Promise<ToolkitInfo | undefined> {
+    const cfn = sdk.cloudFormation();
+    const stack = await stabilizeStack(cfn, stackName ?? DEFAULT_TOOLKIT_STACK_NAME);
+    if (!stack) {
+      debug('The environment %s doesn\'t have the CDK toolkit stack (%s) installed. Use %s to setup your environment for use with the toolkit.',
+        environment.name, stackName, colors.blue(`cdk bootstrap "${environment.name}"`));
+      return undefined;
+    }
+    if (stack.stackStatus.isCreationFailure) {
+      // Treat a "failed to create" bootstrap stack as an absent one.
+      debug('The environment %s has a CDK toolkit stack (%s) that failed to create. Use %s to try provisioning it again.',
+        environment.name, stackName, colors.blue(`cdk bootstrap "${environment.name}"`));
+      return undefined;
+    }
 
-  constructor(private readonly props: {
-    sdk: ISDK,
-    bucketName: string,
-    bucketEndpoint: string,
-    environment: cxapi.Environment
-  }) {
-    this.sdk = props.sdk;
+    return new ToolkitInfo(stack, sdk);
+  }
+
+  constructor(public readonly stack: CloudFormationStack, private readonly sdk?: ISDK) {
   }
 
   public get bucketUrl() {
-    return `https://${this.props.bucketEndpoint}`;
+    return `https://${this.requireOutput(BUCKET_DOMAIN_NAME_OUTPUT)}`;
   }
 
   public get bucketName() {
-    return this.props.bucketName;
+    return this.requireOutput(BUCKET_NAME_OUTPUT);
   }
 
-  /**
-   * Uploads a data blob to S3 under the specified key prefix.
-   * Uses a hash to render the full key and skips upload if an object
-   * already exists by this key.
-   */
-  public async uploadIfChanged(data: string | Buffer | DataView, props: UploadProps): Promise<Uploaded> {
-    const s3 = await this.props.sdk.s3(this.props.environment.account, this.props.environment.region, Mode.ForWriting);
+  public get version() {
+    return parseInt(this.stack.outputs[BOOTSTRAP_VERSION_OUTPUT] ?? '0', 10);
+  }
 
-    const s3KeyPrefix = props.s3KeyPrefix || '';
-    const s3KeySuffix = props.s3KeySuffix || '';
-
-    const bucket = this.props.bucketName;
-
-    const hash = contentHash(data);
-    const filename = `${hash}${s3KeySuffix}`;
-    const key = `${s3KeyPrefix}${filename}`;
-    const url = `s3://${bucket}/${key}`;
-
-    debug(`${url}: checking if already exists`);
-    if (await objectExists(s3, bucket, key)) {
-      debug(`${url}: found (skipping upload)`);
-      return { filename, key, hash, changed: false };
-    }
-
-    const uploaded = { filename, key, hash, changed: true };
-
-    // Upload if it's new or server-side copy if it was already uploaded previously
-    const previous = this.previousUploads[hash];
-    if (previous) {
-      debug(`${url}: copying`);
-      await s3.copyObject({
-        Bucket: bucket,
-        Key: key,
-        CopySource: `${bucket}/${previous.key}`
-      }).promise();
-      debug(`${url}: copy complete`);
-    } else {
-      debug(`${url}: uploading`);
-      await s3.putObject({
-        Bucket: bucket,
-        Key: key,
-        Body: data,
-        ContentType: props.contentType
-      }).promise();
-      debug(`${url}: upload complete`);
-      this.previousUploads[hash] = uploaded;
-    }
-
-    return uploaded;
+  public get parameters(): Record<string, string> {
+    return this.stack.parameters ?? {};
   }
 
   /**
@@ -106,7 +63,10 @@ export class ToolkitInfo {
    * @experimental
    */
   public async prepareEcrRepository(repositoryName: string): Promise<EcrRepositoryInfo> {
-    const ecr = await this.props.sdk.ecr(this.props.environment.account, this.props.environment.region, Mode.ForWriting);
+    if (!this.sdk) {
+      throw new Error('ToolkitInfo needs to have been initialized with an sdk to call prepareEcrRepository');
+    }
+    const ecr = this.sdk.ecr();
 
     // check if repo already exists
     try {
@@ -123,7 +83,7 @@ export class ToolkitInfo {
     // create the repo (tag it so it will be easier to garbage collect in the future)
     debug(`${repositoryName}: creating ECR repository`);
     const assetTag = { Key: 'awscdk:asset', Value: 'true' };
-    const response = await ecr.createRepository({ repositoryName, tags: [ assetTag ] }).promise();
+    const response = await ecr.createRepository({ repositoryName, tags: [assetTag] }).promise();
     const repositoryUri = response.repository?.repositoryUri;
     if (!repositoryUri) {
       throw new Error(`CreateRepository did not return a repository URI for ${repositoryUri}`);
@@ -136,44 +96,11 @@ export class ToolkitInfo {
     return { repositoryUri };
   }
 
-  /**
-   * Get ECR credentials
-   */
-  public async getEcrCredentials(): Promise<EcrCredentials> {
-    const ecr = await this.props.sdk.ecr(this.props.environment.account, this.props.environment.region, Mode.ForReading);
-
-    debug(`Fetching ECR authorization token`);
-    const authData =  (await ecr.getAuthorizationToken({ }).promise()).authorizationData || [];
-    if (authData.length === 0) {
-      throw new Error('No authorization data received from ECR');
+  private requireOutput(output: string): string {
+    if (!(output in this.stack.outputs)) {
+      throw new Error(`The CDK toolkit stack (${this.stack.stackName}) does not have an output named ${output}. Use 'cdk bootstrap' to correct this.`);
     }
-    const token = Buffer.from(authData[0].authorizationToken!, 'base64').toString('ascii');
-    const [username, password] = token.split(':');
-
-    return {
-      username,
-      password,
-      endpoint: authData[0].proxyEndpoint!,
-    };
-  }
-
-  /**
-   * Check if image already exists in ECR repository
-   */
-  public async checkEcrImage(repositoryName: string, imageTag: string): Promise<boolean> {
-    const ecr = await this.props.sdk.ecr(this.props.environment.account, this.props.environment.region, Mode.ForReading);
-
-    try {
-      debug(`${repositoryName}: checking for image ${imageTag}`);
-      await ecr.describeImages({ repositoryName, imageIds: [{ imageTag }] }).promise();
-
-      // If we got here, the image already exists. Nothing else needs to be done.
-      return true;
-    } catch (e) {
-      if (e.code !== 'ImageNotFoundException') { throw e; }
-    }
-
-    return false;
+    return this.stack.outputs[output];
   }
 }
 
@@ -187,45 +114,4 @@ export interface EcrCredentials {
   username: string;
   password: string;
   endpoint: string;
-}
-
-async function objectExists(s3: aws.S3, bucket: string, key: string) {
-  try {
-    await s3.headObject({ Bucket: bucket, Key: key }).promise();
-    return true;
-  } catch (e) {
-    if (e.code === 'NotFound') {
-      return false;
-    }
-
-    throw e;
-  }
-}
-
-/** @experimental */
-export async function loadToolkitInfo(environment: cxapi.Environment, sdk: ISDK, stackName: string): Promise<ToolkitInfo | undefined> {
-  const cfn = await sdk.cloudFormation(environment.account, environment.region, Mode.ForReading);
-  const stack = await waitForStack(cfn, stackName);
-  if (!stack) {
-    debug('The environment %s doesn\'t have the CDK toolkit stack (%s) installed. Use %s to setup your environment for use with the toolkit.',
-        environment.name, stackName, colors.blue(`cdk bootstrap "${environment.name}"`));
-    return undefined;
-  }
-  return new ToolkitInfo({
-    sdk, environment,
-    bucketName: getOutputValue(stack, BUCKET_NAME_OUTPUT),
-    bucketEndpoint: getOutputValue(stack, BUCKET_DOMAIN_NAME_OUTPUT)
-  });
-}
-
-function getOutputValue(stack: aws.CloudFormation.Stack, output: string): string {
-  let result: string | undefined;
-  if (stack.Outputs) {
-    const found = stack.Outputs.find(o => o.OutputKey === output);
-    result = found && found.OutputValue;
-  }
-  if (result === undefined) {
-    throw new Error(`The CDK toolkit stack (${stack.StackName}) does not have an output named ${output}. Use 'cdk bootstrap' to correct this.`);
-  }
-  return result;
 }

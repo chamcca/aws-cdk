@@ -1,6 +1,6 @@
 {
   "name": "@aws-cdk/aws-sam",
-  "version": "1.23.0",
+  "version": "0.0.0",
   "description": "The CDK Construct Library for the AWS Serverless Application Model (SAM) resources",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -23,9 +23,14 @@
       },
       "python": {
         "distName": "aws-cdk.aws-sam",
-        "module": "aws_cdk.aws_sam"
+        "module": "aws_cdk.aws_sam",
+        "classifiers": [
+          "Framework :: AWS CDK",
+          "Framework :: AWS CDK :: 1"
+        ]
       }
-    }
+    },
+    "projectReferences": true
   },
   "repository": {
     "type": "git",
@@ -48,7 +53,8 @@
     "compat": "cdk-compat"
   },
   "cdk-build": {
-    "cloudformation": "AWS::Serverless"
+    "cloudformation": "AWS::Serverless",
+    "jest": true
   },
   "keywords": [
     "aws",
@@ -63,23 +69,28 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "@aws-cdk/assert": "1.23.0",
-    "@types/jest": "^25.1.1",
-    "cdk-build-tools": "1.23.0",
-    "cfn2ts": "1.23.0",
-    "jest": "^24.9.0",
-    "pkglint": "1.23.0",
-    "ts-jest": "^25.2.0"
+    "@aws-cdk/assert": "0.0.0",
+    "@types/jest": "^26.0.14",
+    "cdk-build-tools": "0.0.0",
+    "cfn2ts": "0.0.0",
+    "jest": "^26.4.2",
+    "pkglint": "0.0.0",
+    "ts-jest": "^26.3.0"
   },
   "dependencies": {
-    "@aws-cdk/core": "1.23.0"
+    "@aws-cdk/core": "0.0.0",
+    "constructs": "^3.0.4"
   },
   "peerDependencies": {
-    "@aws-cdk/core": "1.23.0"
+    "@aws-cdk/core": "0.0.0",
+    "constructs": "^3.0.4"
   },
-  "jest": {},
   "engines": {
-    "node": ">= 10.3.0"
+    "node": ">= 10.13.0 <13 || >=13.7.0"
   },
-  "stability": "experimental"
+  "stability": "experimental",
+  "maturity": "cfn-only",
+  "awscdkio": {
+    "announce": false
+  }
 }
