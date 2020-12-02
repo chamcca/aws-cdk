@@ -1,5 +1,6 @@
 import * as iam from '@aws-cdk/aws-iam';
-import { Construct, IConstruct, IResource, RemovalPolicy, Resource, Stack } from '@aws-cdk/core';
+import { IResource, RemovalPolicy, Resource, Stack } from '@aws-cdk/core';
+import { IConstruct, Construct } from 'constructs';
 import { Alias } from './alias';
 import { CfnKey } from './kms.generated';
 
@@ -42,17 +43,17 @@ export interface IKey extends IResource {
   grant(grantee: iam.IGrantable, ...actions: string[]): iam.Grant;
 
   /**
-   * Grant decryption permisisons using this key to the given principal
+   * Grant decryption permissions using this key to the given principal
    */
   grantDecrypt(grantee: iam.IGrantable): iam.Grant;
 
   /**
-   * Grant encryption permisisons using this key to the given principal
+   * Grant encryption permissions using this key to the given principal
    */
   grantEncrypt(grantee: iam.IGrantable): iam.Grant;
 
   /**
-   * Grant encryption and decryption permisisons using this key to the given principal
+   * Grant encryption and decryption permissions using this key to the given principal
    */
   grantEncryptDecrypt(grantee: iam.IGrantable): iam.Grant;
 }
@@ -208,7 +209,7 @@ abstract class KeyBase extends Resource implements IKey {
    */
   private granteeStackDependsOnKeyStack(grantee: iam.IGrantable): string | undefined {
     const grantPrincipal = grantee.grantPrincipal;
-    if (!(Construct.isConstruct(grantPrincipal))) {
+    if (!(grantPrincipal instanceof Construct)) {
       return undefined;
     }
     // this logic should only apply to newly created
@@ -236,7 +237,7 @@ abstract class KeyBase extends Resource implements IKey {
   }
 
   private isGranteeFromAnotherRegion(grantee: iam.IGrantable): boolean {
-    if (!(Construct.isConstruct(grantee))) {
+    if (!(grantee instanceof Construct)) {
       return false;
     }
     const bucketStack = Stack.of(this);
@@ -245,7 +246,7 @@ abstract class KeyBase extends Resource implements IKey {
   }
 
   private isGranteeFromAnotherAccount(grantee: iam.IGrantable): boolean {
-    if (!(Construct.isConstruct(grantee))) {
+    if (!(grantee instanceof Construct)) {
       return false;
     }
     const bucketStack = Stack.of(this);

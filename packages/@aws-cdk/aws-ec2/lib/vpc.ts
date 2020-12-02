@@ -1,9 +1,10 @@
 import * as cxschema from '@aws-cdk/cloud-assembly-schema';
 import {
-  Annotations, ConcreteDependable, Construct, ContextProvider, DependableTrait, IConstruct,
-  IDependable, IResource, Lazy, Resource, Stack, Token, Tags,
+  Annotations, ConcreteDependable, ContextProvider, DependableTrait, IConstruct,
+  IDependable, IResource, Lazy, Resource, Stack, Token, Tags, Names,
 } from '@aws-cdk/core';
 import * as cxapi from '@aws-cdk/cx-api';
+import { Construct, Node } from 'constructs';
 import {
   CfnEIP, CfnInternetGateway, CfnNatGateway, CfnRoute, CfnRouteTable, CfnSubnet,
   CfnSubnetRouteTableAssociation, CfnVPC, CfnVPCGatewayAttachment, CfnVPNGatewayRoutePropagation,
@@ -17,6 +18,10 @@ import { GatewayVpcEndpoint, GatewayVpcEndpointAwsService, GatewayVpcEndpointOpt
 import { FlowLog, FlowLogOptions, FlowLogResourceType } from './vpc-flow-logs';
 import { VpcLookupOptions } from './vpc-lookup';
 import { EnableVpnGatewayOptions, VpnConnection, VpnConnectionOptions, VpnConnectionType, VpnGateway } from './vpn';
+
+// v2 - keep this import as a separate section to reduce merge conflict when forward merging with the v2 branch.
+// eslint-disable-next-line
+import { Construct as CoreConstruct } from '@aws-cdk/core';
 
 const VPC_SUBNET_SYMBOL = Symbol.for('@aws-cdk/aws-ec2.VpcSubnet');
 
@@ -931,7 +936,7 @@ export interface SubnetConfiguration {
    *
    * When true, the IP space for the subnet is reserved but no actual
    * resources are provisioned. This space is only dependent on the
-   * number of availibility zones and on `cidrMask` - all other subnet
+   * number of availability zones and on `cidrMask` - all other subnet
    * properties are ignored.
    *
    * @default false
@@ -1337,9 +1342,9 @@ export class Vpc extends VpcBase {
     }
 
     const totalRemaining = remainingSpaceSubnets.length * this.availabilityZones.length;
-    const cidrMaskForRemaing = this.networkBuilder.maskForRemainingSubnets(totalRemaining);
+    const cidrMaskForRemaining = this.networkBuilder.maskForRemainingSubnets(totalRemaining);
     for (const subnet of remainingSpaceSubnets) {
-      this.createSubnetResources(subnet, cidrMaskForRemaing);
+      this.createSubnetResources(subnet, cidrMaskForRemaining);
     }
   }
 
@@ -1481,6 +1486,12 @@ export class Subnet extends Resource implements ISubnet {
   public readonly subnetIpv6CidrBlocks: string[];
 
   /**
+   * The Amazon Resource Name (ARN) of the Outpost for this subnet (if one exists).
+   * @attribute
+   */
+  public readonly subnetOutpostArn: string;
+
+  /**
    * @attribute
    */
   public readonly subnetNetworkAclAssociationId: string;
@@ -1520,11 +1531,12 @@ export class Subnet extends Resource implements ISubnet {
     this.subnetVpcId = subnet.attrVpcId;
     this.subnetAvailabilityZone = subnet.attrAvailabilityZone;
     this.subnetIpv6CidrBlocks = subnet.attrIpv6CidrBlocks;
+    this.subnetOutpostArn = subnet.attrOutpostArn;
 
     // subnet.attrNetworkAclAssociationId is the default ACL after the subnet
     // was just created. However, the ACL can be replaced at a later time.
     this._networkAcl = NetworkAcl.fromNetworkAclId(this, 'Acl', subnet.attrNetworkAclAssociationId);
-    this.subnetNetworkAclAssociationId = Lazy.stringValue({ produce: () => this._networkAcl.networkAclId });
+    this.subnetNetworkAclAssociationId = Lazy.string({ produce: () => this._networkAcl.networkAclId });
     this.node.defaultChild = subnet;
 
     const table = new CfnRouteTable(this, 'RouteTable', {
@@ -1568,7 +1580,7 @@ export class Subnet extends Resource implements ISubnet {
    * explicit DENY entries that you add.
    *
    * You can replace it with a custom ACL which denies all traffic except
-   * the explic it ALLOW entries that you add by creating a `NetworkAcl`
+   * the explicit ALLOW entries that you add by creating a `NetworkAcl`
    * object and calling `associateNetworkAcl()`.
    */
   public get networkAcl(): INetworkAcl {
@@ -1610,9 +1622,9 @@ export class Subnet extends Resource implements ISubnet {
   public associateNetworkAcl(id: string, networkAcl: INetworkAcl) {
     this._networkAcl = networkAcl;
 
-    const scope = Construct.isConstruct(networkAcl) ? networkAcl : this;
-    const other = Construct.isConstruct(networkAcl) ? this : networkAcl;
-    new SubnetNetworkAclAssociation(scope, id + other.node.uniqueId, {
+    const scope = CoreConstruct.isConstruct(networkAcl) ? networkAcl : this;
+    const other = CoreConstruct.isConstruct(networkAcl) ? this : networkAcl;
+    new SubnetNetworkAclAssociation(scope, id + Names.nodeUniqueId(other.node), {
       networkAcl,
       subnet: this,
     });
@@ -1916,7 +1928,7 @@ class ImportedSubnet extends Resource implements ISubnet, IPublicSubnet, IPrivat
 
     if (!attrs.routeTableId) {
       const ref = Token.isUnresolved(attrs.subnetId)
-        ? `at '${scope.node.path}/${id}'`
+        ? `at '${Node.of(scope).path}/${id}'`
         : `'${attrs.subnetId}'`;
       // eslint-disable-next-line max-len
       Annotations.of(this).addWarning(`No routeTableId was provided to the subnet ${ref}. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171)`);
@@ -1948,9 +1960,9 @@ class ImportedSubnet extends Resource implements ISubnet, IPublicSubnet, IPrivat
   }
 
   public associateNetworkAcl(id: string, networkAcl: INetworkAcl): void {
-    const scope = Construct.isConstruct(networkAcl) ? networkAcl : this;
-    const other = Construct.isConstruct(networkAcl) ? this : networkAcl;
-    new SubnetNetworkAclAssociation(scope, id + other.node.uniqueId, {
+    const scope = CoreConstruct.isConstruct(networkAcl) ? networkAcl : this;
+    const other = CoreConstruct.isConstruct(networkAcl) ? this : networkAcl;
+    new SubnetNetworkAclAssociation(scope, id + Names.nodeUniqueId(other.node), {
       networkAcl,
       subnet: this,
     });

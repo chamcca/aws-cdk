@@ -1,11 +1,11 @@
-import { ABSENT } from '@aws-cdk/assert';
+import { ABSENT, objectLike } from '@aws-cdk/assert';
 import '@aws-cdk/assert/jest';
 import * as acm from '@aws-cdk/aws-certificatemanager';
 import * as lambda from '@aws-cdk/aws-lambda';
 import * as s3 from '@aws-cdk/aws-s3';
 import { App, Duration, Stack } from '@aws-cdk/core';
 import { CfnDistribution, Distribution, GeoRestriction, HttpVersion, IOrigin, LambdaEdgeEventType, PriceClass } from '../lib';
-import { defaultOrigin } from './test-origin';
+import { defaultOrigin, defaultOriginGroup } from './test-origin';
 
 let app: App;
 let stack: Stack;
@@ -24,7 +24,8 @@ test('minimal example renders correctly', () => {
   expect(stack).toHaveResource('AWS::CloudFront::Distribution', {
     DistributionConfig: {
       DefaultCacheBehavior: {
-        ForwardedValues: { QueryString: false },
+        CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+        Compress: true,
         TargetOriginId: 'StackMyDistOrigin1D6D5E535',
         ViewerProtocolPolicy: 'allow-all',
       },
@@ -67,7 +68,8 @@ test('exhaustive example of props renders correctly', () => {
     DistributionConfig: {
       Aliases: ['example.com'],
       DefaultCacheBehavior: {
-        ForwardedValues: { QueryString: false },
+        CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+        Compress: true,
         TargetOriginId: 'StackMyDistOrigin1D6D5E535',
         ViewerProtocolPolicy: 'allow-all',
       },
@@ -132,13 +134,15 @@ describe('multiple behaviors', () => {
     expect(stack).toHaveResource('AWS::CloudFront::Distribution', {
       DistributionConfig: {
         DefaultCacheBehavior: {
-          ForwardedValues: { QueryString: false },
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           TargetOriginId: 'StackMyDistOrigin1D6D5E535',
           ViewerProtocolPolicy: 'allow-all',
         },
         CacheBehaviors: [{
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           PathPattern: 'api/*',
-          ForwardedValues: { QueryString: false },
           TargetOriginId: 'StackMyDistOrigin1D6D5E535',
           ViewerProtocolPolicy: 'allow-all',
         }],
@@ -169,13 +173,15 @@ describe('multiple behaviors', () => {
     expect(stack).toHaveResource('AWS::CloudFront::Distribution', {
       DistributionConfig: {
         DefaultCacheBehavior: {
-          ForwardedValues: { QueryString: false },
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           TargetOriginId: 'StackMyDistOrigin1D6D5E535',
           ViewerProtocolPolicy: 'allow-all',
         },
         CacheBehaviors: [{
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           PathPattern: 'api/*',
-          ForwardedValues: { QueryString: false },
           TargetOriginId: 'StackMyDistOrigin20B96F3AD',
           ViewerProtocolPolicy: 'allow-all',
         }],
@@ -214,19 +220,22 @@ describe('multiple behaviors', () => {
     expect(stack).toHaveResource('AWS::CloudFront::Distribution', {
       DistributionConfig: {
         DefaultCacheBehavior: {
-          ForwardedValues: { QueryString: false },
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           TargetOriginId: 'StackMyDistOrigin1D6D5E535',
           ViewerProtocolPolicy: 'allow-all',
         },
         CacheBehaviors: [{
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           PathPattern: 'api/1*',
-          ForwardedValues: { QueryString: false },
           TargetOriginId: 'StackMyDistOrigin20B96F3AD',
           ViewerProtocolPolicy: 'allow-all',
         },
         {
+          CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+          Compress: true,
           PathPattern: 'api/2*',
-          ForwardedValues: { QueryString: false },
           TargetOriginId: 'StackMyDistOrigin1D6D5E535',
           ViewerProtocolPolicy: 'allow-all',
         }],
@@ -697,5 +706,41 @@ test('escape hatches are supported', () => {
         },
       },
     },
+  });
+});
+
+describe('origin IDs', () => {
+  test('origin ID is limited to 128 characters', () => {
+    const nestedStack = new Stack(stack, 'LongNameThatWillEndUpGeneratingAUniqueNodeIdThatIsLongerThanTheOneHundredAndTwentyEightCharacterLimit');
+
+    new Distribution(nestedStack, 'AReallyAwesomeDistributionWithAMemorableNameThatIWillNeverForget', {
+      defaultBehavior: { origin: defaultOrigin() },
+    });
+
+    expect(nestedStack).toHaveResourceLike('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        Origins: [objectLike({
+          Id: 'ngerThanTheOneHundredAndTwentyEightCharacterLimitAReallyAwesomeDistributionWithAMemorableNameThatIWillNeverForgetOrigin1D38031F9',
+        })],
+      },
+    });
+  });
+
+  test('origin group ID is limited to 128 characters', () => {
+    const nestedStack = new Stack(stack, 'LongNameThatWillEndUpGeneratingAUniqueNodeIdThatIsLongerThanTheOneHundredAndTwentyEightCharacterLimit');
+
+    new Distribution(nestedStack, 'AReallyAwesomeDistributionWithAMemorableNameThatIWillNeverForget', {
+      defaultBehavior: { origin: defaultOriginGroup() },
+    });
+
+    expect(nestedStack).toHaveResourceLike('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        OriginGroups: {
+          Items: [objectLike({
+            Id: 'hanTheOneHundredAndTwentyEightCharacterLimitAReallyAwesomeDistributionWithAMemorableNameThatIWillNeverForgetOriginGroup1B5CE3FE6',
+          })],
+        },
+      },
+    });
   });
 });

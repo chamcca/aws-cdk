@@ -6,7 +6,8 @@ import * as iam from '@aws-cdk/aws-iam';
 import * as kms from '@aws-cdk/aws-kms';
 import * as lambda from '@aws-cdk/aws-lambda';
 import * as ssm from '@aws-cdk/aws-ssm';
-import { Annotations, CfnOutput, CfnResource, Construct, IResource, Resource, Stack, Tags, Token, Duration } from '@aws-cdk/core';
+import { Annotations, CfnOutput, CfnResource, IResource, Resource, Stack, Tags, Token, Duration } from '@aws-cdk/core';
+import { Construct, Node } from 'constructs';
 import * as YAML from 'yaml';
 import { AwsAuth } from './aws-auth';
 import { ClusterResource, clusterArnComponents } from './cluster-resource';
@@ -18,9 +19,14 @@ import { KubernetesObjectValue } from './k8s-object-value';
 import { KubernetesPatch } from './k8s-patch';
 import { KubectlProvider } from './kubectl-provider';
 import { Nodegroup, NodegroupOptions } from './managed-nodegroup';
+import { OpenIdConnectProvider } from './oidc-provider';
 import { BottleRocketImage } from './private/bottlerocket';
 import { ServiceAccount, ServiceAccountOptions } from './service-account';
 import { LifecycleLabel, renderAmazonLinuxUserData, renderBottlerocketUserData } from './user-data';
+
+// v2 - keep this import as a separate section to reduce merge conflict when forward merging with the v2 branch.
+// eslint-disable-next-line
+import { Construct as CoreConstruct } from '@aws-cdk/core';
 
 // defaults are based on https://eksctl.io
 const DEFAULT_CAPACITY_COUNT = 2;
@@ -73,6 +79,11 @@ export interface ICluster extends IResource, ec2.IConnectable {
   readonly clusterEncryptionConfigKeyArn: string;
 
   /**
+   * The Open ID Connect Provider of the cluster used to configure Service Accounts.
+   */
+  readonly openIdConnectProvider: iam.IOpenIdConnectProvider;
+
+  /**
    * An IAM role that can perform kubectl operations against this cluster.
    *
    * The role should be mapped to the `system:masters` Kubernetes RBAC role.
@@ -109,6 +120,14 @@ export interface ICluster extends IResource, ec2.IConnectable {
   readonly kubectlLayer?: lambda.ILayerVersion;
 
   /**
+   * Creates a new service account with corresponding IAM Role (IRSA).
+   *
+   * @param id logical id of service account
+   * @param options service account options
+   */
+  addServiceAccount(id: string, options?: ServiceAccountOptions): ServiceAccount;
+
+  /**
    * Defines a Kubernetes resource in this cluster.
    *
    * The manifest will be applied/deleted using kubectl as needed.
@@ -117,7 +136,7 @@ export interface ICluster extends IResource, ec2.IConnectable {
    * @param manifest a list of Kubernetes resource specifications
    * @returns a `KubernetesManifest` object.
    */
-  addManifest(id: string, ...manifest: any[]): KubernetesManifest;
+  addManifest(id: string, ...manifest: Record<string, any>[]): KubernetesManifest;
 
   /**
    * Defines a Helm chart in this cluster.
@@ -126,7 +145,17 @@ export interface ICluster extends IResource, ec2.IConnectable {
    * @param options options of this chart.
    * @returns a `HelmChart` construct
    */
-  addChart(id: string, options: HelmChartOptions): HelmChart;
+  addHelmChart(id: string, options: HelmChartOptions): HelmChart;
+
+  /**
+   * Defines a CDK8s chart in this cluster.
+   *
+   * @param id logical id of this chart.
+   * @param chart the cdk8s chart.
+   * @returns a `KubernetesManifest` construct representing the chart.
+   */
+  addCdk8sChart(id: string, chart: Construct): KubernetesManifest;
+
 }
 
 /**
@@ -204,6 +233,14 @@ export interface ClusterAttributes {
    * @default - k8s endpoint is expected to be accessible publicly
    */
   readonly kubectlPrivateSubnetIds?: string[];
+
+  /**
+   * An Open ID Connect provider for this cluster that can be used to configure service accounts.
+   * You can either import an existing provider using `iam.OpenIdConnectProvider.fromProviderArn`,
+   * or create a new provider using `new eks.OpenIdConnectProvider`
+   * @default - if not specified `cluster.openIdConnectProvider` and `cluster.addServiceAccount` will throw an error.
+   */
+  readonly openIdConnectProvider?: iam.IOpenIdConnectProvider;
 
   /**
    * An AWS Lambda Layer which includes `kubectl`, Helm and the AWS CLI.
@@ -507,7 +544,7 @@ export interface ClusterProps extends ClusterOptions {
    * Instance type can be configured through `defaultCapacityInstanceType`,
    * which defaults to `m5.large`.
    *
-   * Use `cluster.addCapacity` to add additional customized capacity. Set this
+   * Use `cluster.addAutoScalingGroupCapacity` to add additional customized capacity. Set this
    * to `0` is you wish to avoid the initial capacity allocation.
    *
    * @default 2
@@ -564,6 +601,11 @@ export class KubernetesVersion {
   public static readonly V1_17 = KubernetesVersion.of('1.17');
 
   /**
+   * Kubernetes version 1.18
+   */
+  public static readonly V1_18 = KubernetesVersion.of('1.18');
+
+  /**
    * Custom cluster version
    * @param version custom version number
    */
@@ -588,6 +630,7 @@ abstract class ClusterBase extends Resource implements ICluster {
   public abstract readonly kubectlEnvironment?: { [key: string]: string };
   public abstract readonly kubectlSecurityGroup?: ec2.ISecurityGroup;
   public abstract readonly kubectlPrivateSubnets?: ec2.ISubnet[];
+  public abstract readonly openIdConnectProvider: iam.IOpenIdConnectProvider;
 
   /**
    * Defines a Kubernetes resource in this cluster.
@@ -598,7 +641,7 @@ abstract class ClusterBase extends Resource implements ICluster {
    * @param manifest a list of Kubernetes resource specifications
    * @returns a `KubernetesResource` object.
    */
-  public addManifest(id: string, ...manifest: any[]): KubernetesManifest {
+  public addManifest(id: string, ...manifest: Record<string, any>[]): KubernetesManifest {
     return new KubernetesManifest(this, `manifest-${id}`, { cluster: this, manifest });
   }
 
@@ -609,8 +652,34 @@ abstract class ClusterBase extends Resource implements ICluster {
    * @param options options of this chart.
    * @returns a `HelmChart` construct
    */
-  public addChart(id: string, options: HelmChartOptions): HelmChart {
+  public addHelmChart(id: string, options: HelmChartOptions): HelmChart {
     return new HelmChart(this, `chart-${id}`, { cluster: this, ...options });
+  }
+
+  /**
+   * Defines a CDK8s chart in this cluster.
+   *
+   * @param id logical id of this chart.
+   * @param chart the cdk8s chart.
+   * @returns a `KubernetesManifest` construct representing the chart.
+   */
+  public addCdk8sChart(id: string, chart: Construct): KubernetesManifest {
+
+    const cdk8sChart = chart as any;
+
+    // see https://github.com/awslabs/cdk8s/blob/master/packages/cdk8s/src/chart.ts#L84
+    if (typeof cdk8sChart.toJson !== 'function') {
+      throw new Error(`Invalid cdk8s chart. Must contain a 'toJson' method, but found ${typeof cdk8sChart.toJson}`);
+    }
+
+    return this.addManifest(id, ...cdk8sChart.toJson());
+  }
+
+  public addServiceAccount(id: string, options: ServiceAccountOptions = {}): ServiceAccount {
+    return new ServiceAccount(this, id, {
+      ...options,
+      cluster: this,
+    });
   }
 }
 
@@ -763,6 +832,11 @@ export class Cluster extends ClusterBase {
   private readonly _fargateProfiles: FargateProfile[] = [];
 
   /**
+   * an Open ID Connect Provider instance
+   */
+  private _openIdConnectProvider?: iam.IOpenIdConnectProvider;
+
+  /**
    * The AWS Lambda layer that contains `kubectl`, `helm` and the AWS CLI. If
    * undefined, a SAR app that contains this layer will be used.
    */
@@ -779,8 +853,6 @@ export class Cluster extends ClusterBase {
    * Manages the aws-auth config map.
    */
   private _awsAuth?: AwsAuth;
-
-  private _openIdConnectProvider?: iam.OpenIdConnectProvider;
 
   private _spotInterruptHandler?: HelmChart;
 
@@ -812,7 +884,7 @@ export class Cluster extends ClusterBase {
    * Initiates an EKS Cluster with the supplied arguments
    *
    * @param scope a Construct, most likely a cdk.Stack created
-   * @param name the name of the Construct to create
+   * @param id the id of the Construct to create
    * @param props properties in the IClusterProps interface
    */
   constructor(scope: Construct, id: string, props: ClusterProps) {
@@ -984,10 +1056,10 @@ export class Cluster extends ClusterBase {
     if (minCapacity > 0) {
       const instanceType = props.defaultCapacityInstance || DEFAULT_CAPACITY_TYPE;
       this.defaultCapacity = props.defaultCapacityType === DefaultCapacityType.EC2 ?
-        this.addCapacity('DefaultCapacity', { instanceType, minCapacity }) : undefined;
+        this.addAutoScalingGroupCapacity('DefaultCapacity', { instanceType, minCapacity }) : undefined;
 
       this.defaultNodegroup = props.defaultCapacityType !== DefaultCapacityType.EC2 ?
-        this.addNodegroup('DefaultCapacity', { instanceType, minSize: minCapacity }) : undefined;
+        this.addNodegroupCapacity('DefaultCapacity', { instanceType, minSize: minCapacity }) : undefined;
     }
 
     const outputConfigCommand = props.outputConfigCommand === undefined ? true : props.outputConfigCommand;
@@ -1036,7 +1108,7 @@ export class Cluster extends ClusterBase {
    * daemon will be installed on all spot instances to handle
    * [EC2 Spot Instance Termination Notices](https://aws.amazon.com/blogs/aws/new-ec2-spot-instance-termination-notices/).
    */
-  public addCapacity(id: string, options: CapacityOptions): autoscaling.AutoScalingGroup {
+  public addAutoScalingGroupCapacity(id: string, options: AutoScalingGroupCapacityOptions): autoscaling.AutoScalingGroup {
     if (options.machineImageType === MachineImageType.BOTTLEROCKET && options.bootstrapOptions !== undefined ) {
       throw new Error('bootstrapOptions is not supported for Bottlerocket');
     }
@@ -1056,7 +1128,7 @@ export class Cluster extends ClusterBase {
       instanceType: options.instanceType,
     });
 
-    this.addAutoScalingGroup(asg, {
+    this.connectAutoScalingGroupCapacity(asg, {
       mapRole: options.mapRole,
       bootstrapOptions: options.bootstrapOptions,
       bootstrapEnabled: options.bootstrapEnabled,
@@ -1079,7 +1151,7 @@ export class Cluster extends ClusterBase {
    * @param id The ID of the nodegroup
    * @param options options for creating a new nodegroup
    */
-  public addNodegroup(id: string, options?: NodegroupOptions): Nodegroup {
+  public addNodegroupCapacity(id: string, options?: NodegroupOptions): Nodegroup {
     return new Nodegroup(this, `Nodegroup${id}`, {
       cluster: this,
       ...options,
@@ -1087,7 +1159,7 @@ export class Cluster extends ClusterBase {
   }
 
   /**
-   * Add compute capacity to this EKS cluster in the form of an AutoScalingGroup
+   * Connect capacity in the form of an existing AutoScalingGroup to the EKS cluster.
    *
    * The AutoScalingGroup must be running an EKS-optimized AMI containing the
    * /etc/eks/bootstrap.sh script. This method will configure Security Groups,
@@ -1100,13 +1172,13 @@ export class Cluster extends ClusterBase {
    * daemon will be installed on all spot instances to handle
    * [EC2 Spot Instance Termination Notices](https://aws.amazon.com/blogs/aws/new-ec2-spot-instance-termination-notices/).
    *
-   * Prefer to use `addCapacity` if possible.
+   * Prefer to use `addAutoScalingGroupCapacity` if possible.
    *
    * @see https://docs.aws.amazon.com/eks/latest/userguide/launch-workers.html
    * @param autoScalingGroup [disable-awslint:ref-via-interface]
    * @param options options for adding auto scaling groups, like customizing the bootstrap script
    */
-  public addAutoScalingGroup(autoScalingGroup: autoscaling.AutoScalingGroup, options: AutoScalingGroupOptions) {
+  public connectAutoScalingGroupCapacity(autoScalingGroup: autoscaling.AutoScalingGroup, options: AutoScalingGroupOptions) {
     // self rules
     autoScalingGroup.connections.allowInternally(ec2.Port.allTraffic());
 
@@ -1210,15 +1282,8 @@ export class Cluster extends ClusterBase {
    */
   public get openIdConnectProvider() {
     if (!this._openIdConnectProvider) {
-      this._openIdConnectProvider = new iam.OpenIdConnectProvider(this, 'OpenIdConnectProvider', {
+      this._openIdConnectProvider = new OpenIdConnectProvider(this, 'OpenIdConnectProvider', {
         url: this.clusterOpenIdConnectIssuerUrl,
-        clientIds: ['sts.amazonaws.com'],
-        /**
-         * For some reason EKS isn't validating the root certificate but a intermediat certificate
-         * which is one level up in the tree. Because of the a constant thumbprint value has to be
-         * stated with this OpenID Connect provider. The certificate thumbprint is the same for all the regions.
-         */
-        thumbprints: ['9e99a48a9960b14926bb7f3b02e22da2b0ab7280'],
       });
     }
 
@@ -1234,19 +1299,6 @@ export class Cluster extends ClusterBase {
    */
   public addFargateProfile(id: string, options: FargateProfileOptions) {
     return new FargateProfile(this, `fargate-profile-${id}`, {
-      ...options,
-      cluster: this,
-    });
-  }
-
-  /**
-   * Adds a service account to this cluster.
-   *
-   * @param id the id of this service account
-   * @param options service account options
-   */
-  public addServiceAccount(id: string, options: ServiceAccountOptions = { }) {
-    return new ServiceAccount(this, id, {
       ...options,
       cluster: this,
     });
@@ -1281,7 +1333,7 @@ export class Cluster extends ClusterBase {
    * @internal
    */
   public _attachKubectlResourceScope(resourceScope: Construct): KubectlProvider {
-    resourceScope.node.addDependency(this._kubectlReadyBarrier);
+    Node.of(resourceScope).addDependency(this._kubectlReadyBarrier);
     return this._kubectlResourceProvider;
   }
 
@@ -1300,18 +1352,20 @@ export class Cluster extends ClusterBase {
 
   private selectPrivateSubnets(): ec2.ISubnet[] {
     const privateSubnets: ec2.ISubnet[] = [];
+    const vpcPrivateSubnetIds = this.vpc.privateSubnets.map(s => s.subnetId);
+    const vpcPublicSubnetIds = this.vpc.publicSubnets.map(s => s.subnetId);
 
     for (const placement of this.vpcSubnets) {
 
       for (const subnet of this.vpc.selectSubnets(placement).subnets) {
 
-        if (this.vpc.privateSubnets.includes(subnet)) {
+        if (vpcPrivateSubnetIds.includes(subnet.subnetId)) {
           // definitely private, take it.
           privateSubnets.push(subnet);
           continue;
         }
 
-        if (this.vpc.publicSubnets.includes(subnet)) {
+        if (vpcPublicSubnetIds.includes(subnet.subnetId)) {
           // definitely public, skip it.
           continue;
         }
@@ -1333,7 +1387,7 @@ export class Cluster extends ClusterBase {
    */
   private addSpotInterruptHandler() {
     if (!this._spotInterruptHandler) {
-      this._spotInterruptHandler = this.addChart('spot-interrupt-handler', {
+      this._spotInterruptHandler = this.addHelmChart('spot-interrupt-handler', {
         chart: 'aws-node-termination-handler',
         version: '0.9.5',
         repository: 'https://aws.github.io/eks-charts',
@@ -1430,7 +1484,7 @@ export class Cluster extends ClusterBase {
 /**
  * Options for adding worker nodes
  */
-export interface CapacityOptions extends autoscaling.CommonAutoScalingGroupProps {
+export interface AutoScalingGroupCapacityOptions extends autoscaling.CommonAutoScalingGroupProps {
   /**
    * Instance type of the instances to start
    */
@@ -1567,7 +1621,7 @@ export interface AutoScalingGroupOptions {
 /**
  * Import a cluster to use in another stack
  */
-class ImportedCluster extends ClusterBase implements ICluster {
+class ImportedCluster extends ClusterBase {
   public readonly clusterName: string;
   public readonly clusterArn: string;
   public readonly connections = new ec2.Connections();
@@ -1633,6 +1687,13 @@ class ImportedCluster extends ClusterBase implements ICluster {
     }
     return this.props.clusterEncryptionConfigKeyArn;
   }
+
+  public get openIdConnectProvider(): iam.IOpenIdConnectProvider {
+    if (!this.props.openIdConnectProvider) {
+      throw new Error('"openIdConnectProvider" is not defined for this imported cluster');
+    }
+    return this.props.openIdConnectProvider;
+  }
 }
 
 /**
@@ -1690,7 +1751,7 @@ export class EksOptimizedImage implements ec2.IMachineImage {
   /**
    * Return the correct image
    */
-  public getImage(scope: Construct): ec2.MachineImageConfig {
+  public getImage(scope: CoreConstruct): ec2.MachineImageConfig {
     const ami = ssm.StringParameter.valueForStringParameter(scope, this.amiParameterName);
     return {
       imageId: ami,
